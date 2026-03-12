@@ -11,7 +11,8 @@
     "db:migrate": "tsx db/migrate.ts",
     "cleanup:sessions": "tsx scripts/cleanup-sessions.ts",
     "migrate:legacy-users": "tsx scripts/migrate-legacy-users.ts",
-    "test:create-legacy-data": "tsx scripts/create-test-legacy-data.ts"
+    "test:create-legacy-data": "tsx scripts/create-test-legacy-data.ts",
+    "seed:training-materials": "tsx scripts/seed-training-materials.ts"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
