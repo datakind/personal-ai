@@ -6,8 +6,8 @@ This implementation replaces the default Next.js landing page with a functional 
 
 ## Tasks
 
-- [ ] 1. Implement data fetching function and name derivation logic
-  - [~] 1.1 Create getPeople() function in app/page.tsx
+- [x] 1. Implement data fetching function and name derivation logic
+  - [x] 1.1 Create getPeople() function in app/page.tsx
     - Implement async function using db.query.people.findMany()
     - Include facts relation using with: { facts: true }
     - Order by createdAt descending
@@ -21,7 +21,7 @@ This implementation replaces the default Next.js landing page with a functional 
     - Assert returned count matches expected count and all facts are included
     - Use fast-check with minimum 100 iterations
   
-  - [ ] 1.3 Create deriveName() helper function
+  - [x] 1.3 Create deriveName() helper function
     - Extract givenName and familyName from facts array
     - Implement fallback chain: full name → givenName → familyName → "Person #[id]"
     - Return string with proper formatting
@@ -34,8 +34,8 @@ This implementation replaces the default Next.js landing page with a functional 
     - Assert output matches expected format for each case
     - Use fast-check with minimum 100 iterations
 
-- [ ] 2. Implement UI components
-  - [ ] 2.1 Create PersonCard component
+- [x] 2. Implement UI components
+  - [x] 2.1 Create PersonCard component
     - Accept person prop with PersonWithFacts type
     - Call deriveName() for display name
     - Format createdAt using Intl.DateTimeFormat with 'en-US' locale and medium dateStyle
@@ -58,7 +58,7 @@ This implementation replaces the default Next.js landing page with a functional 
     - Assert href attribute equals "/people/{id}"
     - Use fast-check with minimum 100 iterations
   
-  - [ ] 2.4 Create EmptyState component
+  - [x] 2.4 Create EmptyState component
     - Render centered layout with min-h-screen
     - Display "No People Yet" heading
     - Include helpful message about adding people via API
@@ -70,11 +70,11 @@ This implementation replaces the default Next.js landing page with a functional 
     - Test EmptyState displays expected content
     - Test dark mode classes are applied correctly
 
-- [ ] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Implement main page component
-  - [ ] 4.1 Replace app/page.tsx with PeoplePage Server Component
+- [x] 4. Implement main page component
+  - [x] 4.1 Replace app/page.tsx with PeoplePage Server Component
     - Remove all default Next.js template content
     - Create async default export function
     - Call getPeople() and await results
@@ -90,8 +90,8 @@ This implementation replaces the default Next.js landing page with a functional 
     - Test page handles database errors gracefully
     - _Requirements: 1.1, 2.4, 5.1_
 
-- [ ] 5. Add TypeScript type definitions
-  - [ ] 5.1 Define PersonWithFacts type
+- [x] 5. Add TypeScript type definitions
+  - [x] 5.1 Define PersonWithFacts type
     - Import InferSelectModel from drizzle-orm
     - Create type combining Person with facts array
     - Export type for use in components
@@ -101,7 +101,7 @@ This implementation replaces the default Next.js landing page with a functional 
     - Verify getPeople() returns correctly typed data
     - Test type inference works with Drizzle queries
 
-- [ ] 6. Final checkpoint - Ensure all tests pass
+- [x] 6. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
