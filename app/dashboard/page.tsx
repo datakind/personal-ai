@@ -1,5 +1,6 @@
 import { requireSession } from '@/lib/session';
 import { logout } from '@/app/auth/actions';
+import Link from 'next/link';
 
 /**
  * Protected dashboard page that requires authentication
@@ -32,14 +33,15 @@ export default async function DashboardPage() {
         <div className="mt-8">
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-semibold mb-4">Training Materials</h2>
-            <p className="text-gray-600">
-              Welcome back! Your training materials will appear here.
+            <p className="text-gray-600 mb-4">
+              Welcome back! Access your training materials to continue learning.
             </p>
-            <div className="mt-6 p-4 bg-gray-50 rounded-md">
-              <p className="text-sm text-gray-500">
-                Training content will be displayed based on your history and linked storage account.
-              </p>
-            </div>
+            <Link
+              href="/training"
+              className="inline-block rounded-md bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            >
+              View Training Materials
+            </Link>
           </div>
         </div>
       </div>
