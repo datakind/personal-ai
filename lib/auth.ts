@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { cookies } from 'next/headers';
 import { db } from '@/db';
-import { sessions, users, type User, type Session } from '@/db/schema';
+import { sessions, users, oauthTokens, type User, type Session } from '@/db/schema';
 import { eq, lt } from 'drizzle-orm';
 
 /**
@@ -22,20 +22,26 @@ export function generateSessionToken(): string {
  * 
  * @param userId - The ID of the user to create a session for
  * @returns The generated session token string
+ * @throws Error if session creation fails
  */
 export async function createSession(userId: number): Promise<string> {
-  const token = generateSessionToken();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 8 * 60 * 60 * 1000); // 8 hours from now
+  try {
+    const token = generateSessionToken();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 8 * 60 * 60 * 1000); // 8 hours from now
 
-  await db.insert(sessions).values({
-    id: token,
-    userId,
-    expiresAt,
-    createdAt: now,
-  });
+    await db.insert(sessions).values({
+      id: token,
+      userId,
+      expiresAt,
+      createdAt: now,
+    });
 
-  return token;
+    return token;
+  } catch (error) {
+    console.error('Create session error:', error);
+    throw new Error('Failed to create session');
+  }
 }
 
 /**
@@ -49,37 +55,47 @@ export async function createSession(userId: number): Promise<string> {
 export async function validateSession(
   token: string
 ): Promise<{ user: User; session: Session } | null> {
-  // Query session by token with user relation
-  const result = await db.query.sessions.findFirst({
-    where: eq(sessions.id, token),
-    with: {
-      user: true,
-    },
-  });
+  try {
+    // Query session by token with user relation
+    const result = await db.query.sessions.findFirst({
+      where: eq(sessions.id, token),
+      with: {
+        user: true,
+      },
+    });
 
-  // Check if session exists
-  if (!result) {
+    // Check if session exists
+    if (!result) {
+      return null;
+    }
+
+    // Check if session is expired
+    const now = new Date();
+    if (result.expiresAt < now) {
+      // Delete expired session
+      try {
+        await db.delete(sessions).where(eq(sessions.id, token));
+      } catch (deleteError) {
+        // Log but don't fail validation if delete fails
+        console.error('Failed to delete expired session:', deleteError);
+      }
+      return null;
+    }
+
+    // Return valid user and session data
+    return {
+      user: result.user,
+      session: {
+        id: result.id,
+        userId: result.userId,
+        expiresAt: result.expiresAt,
+        createdAt: result.createdAt,
+      },
+    };
+  } catch (error) {
+    console.error('Validate session error:', error);
     return null;
   }
-
-  // Check if session is expired
-  const now = new Date();
-  if (result.expiresAt < now) {
-    // Delete expired session
-    await db.delete(sessions).where(eq(sessions.id, token));
-    return null;
-  }
-
-  // Return valid user and session data
-  return {
-    user: result.user,
-    session: {
-      id: result.id,
-      userId: result.userId,
-      expiresAt: result.expiresAt,
-      createdAt: result.createdAt,
-    },
-  };
 }
 
 /**
@@ -89,7 +105,12 @@ export async function validateSession(
  * @param token - The session token to invalidate
  */
 export async function invalidateSession(token: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.id, token));
+  try {
+    await db.delete(sessions).where(eq(sessions.id, token));
+  } catch (error) {
+    console.error('Invalidate session error:', error);
+    // Don't throw - logout should succeed even if session deletion fails
+  }
 }
 
 /**
@@ -141,6 +162,127 @@ export async function requireAuth(): Promise<User> {
  * @returns A promise that resolves when cleanup is complete
  */
 export async function cleanupExpiredSessions(): Promise<void> {
-  const now = new Date();
-  await db.delete(sessions).where(lt(sessions.expiresAt, now));
+  try {
+    const now = new Date();
+    await db.delete(sessions).where(lt(sessions.expiresAt, now));
+  } catch (error) {
+    console.error('Cleanup expired sessions error:', error);
+    // Don't throw - cleanup failures should not break the application
+  }
+}
+
+/**
+ * Represents the qualification status of a user for PHQ-9 assessments.
+ */
+export type UserQualificationStatus = {
+  hasLinkedAccount: boolean;
+  phq9Qualified: boolean;
+};
+
+/**
+ * External API response format for user qualifications.
+ */
+type ExternalQualificationResponse = {
+  qualifications: {
+    phq9: boolean;
+  };
+};
+
+/**
+ * Retrieves the PHQ-9 qualification status for a user.
+ * Checks if the user has linked their account via OAuth and queries the external API.
+ * 
+ * @param userId - The ID of the user to check qualification for
+ * @returns An object indicating if the user has a linked account and their PHQ-9 qualification status
+ */
+export async function getUserQualificationStatus(userId: number): Promise<UserQualificationStatus> {
+  try {
+    // Check if user has OAuth tokens stored (linked account)
+    const tokenRecord = await db.query.oauthTokens.findFirst({
+      where: eq(oauthTokens.userId, userId),
+    });
+
+    // If no linked account, return not qualified
+    if (!tokenRecord) {
+      return {
+        hasLinkedAccount: false,
+        phq9Qualified: false,
+      };
+    }
+
+    // Check if access token is expired
+    const now = new Date();
+    if (tokenRecord.expiresAt < now) {
+      // Token expired - in a full implementation, we would refresh the token here
+      // For now, default to not qualified when token is expired
+      return {
+        hasLinkedAccount: true,
+        phq9Qualified: false,
+      };
+    }
+
+    // Call external API with OAuth token
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+
+      const response = await fetch(process.env.EXTERNAL_API_URL + '/api/user/qualifications', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${tokenRecord.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // API returned error - default to not qualified
+        console.error('External API error:', response.status, response.statusText);
+        return {
+          hasLinkedAccount: true,
+          phq9Qualified: false,
+        };
+      }
+
+      const data: ExternalQualificationResponse = await response.json();
+      
+      return {
+        hasLinkedAccount: true,
+        phq9Qualified: data.qualifications.phq9 || false,
+      };
+    } catch (error) {
+      // API call failed (timeout, network error, etc.) - default to not qualified
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('External API timeout after 5 seconds');
+      } else {
+        console.error('External API call failed:', error);
+      }
+      
+      return {
+        hasLinkedAccount: true,
+        phq9Qualified: false,
+      };
+    }
+  } catch (error) {
+    // Database error or other unexpected error - default to not qualified
+    console.error('Error checking user qualification:', error);
+    return {
+      hasLinkedAccount: false,
+      phq9Qualified: false,
+    };
+  }
+}
+
+/**
+ * Checks if a user is qualified to administer PHQ-9 assessments.
+ * This is a convenience function that returns only the qualification status.
+ * 
+ * @param userId - The ID of the user to check
+ * @returns true if the user is qualified to administer PHQ-9 assessments, false otherwise
+ */
+export async function isUserPHQ9Qualified(userId: number): Promise<boolean> {
+  const status = await getUserQualificationStatus(userId);
+  return status.phq9Qualified;
 }
