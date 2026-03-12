@@ -35,7 +35,7 @@ describe('User Qualification Checking', () => {
       });
     });
 
-    it('should return not qualified when OAuth token is expired', async () => {
+    it('should return not qualified when OAuth token is expired and refresh fails', async () => {
       // Insert expired OAuth token
       const pastDate = new Date(Date.now() - 1000 * 60 * 60); // 1 hour ago
       await db.insert(oauthTokens).values({
@@ -49,10 +49,100 @@ describe('User Qualification Checking', () => {
 
       const status = await getUserQualificationStatus(testUserId);
 
+      // When token refresh fails (OAuth not configured in test env),
+      // tokens are deleted and account is marked as unlinked
       expect(status).toEqual({
-        hasLinkedAccount: true,
+        hasLinkedAccount: false,
         phq9Qualified: false,
       });
+
+      // Verify tokens were deleted after failed refresh
+      const tokensAfter = await db.query.oauthTokens.findFirst({
+        where: eq(oauthTokens.userId, testUserId),
+      });
+      expect(tokensAfter).toBeUndefined();
+    });
+
+    it('should automatically refresh expired token and return qualification status', async () => {
+      // Set up OAuth configuration for this test
+      const originalEnv = { ...process.env };
+      process.env.OAUTH_CLIENT_ID = 'test-client-id';
+      process.env.OAUTH_CLIENT_SECRET = 'test-client-secret';
+      process.env.OAUTH_AUTHORIZATION_URL = 'https://auth.example.com/authorize';
+      process.env.OAUTH_TOKEN_URL = 'https://auth.example.com/token';
+      process.env.OAUTH_REDIRECT_URI = 'http://localhost:3000/api/oauth/callback';
+      process.env.EXTERNAL_API_URL = 'https://api.example.com';
+
+      // Insert expired OAuth token
+      const pastDate = new Date(Date.now() - 1000 * 60 * 60); // 1 hour ago
+      await db.insert(oauthTokens).values({
+        userId: testUserId,
+        accessToken: 'expired-token',
+        refreshToken: 'valid-refresh-token',
+        expiresAt: pastDate,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Mock fetch for both token refresh and qualification API
+      const originalFetch = global.fetch;
+      const fetchMock = vi.fn();
+      
+      // First call: token refresh
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: 'new-access-token',
+          refresh_token: 'new-refresh-token',
+          expires_in: 3600,
+          token_type: 'Bearer',
+        }),
+      });
+
+      // Second call: qualification API
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          qualifications: {
+            phq9: true,
+          },
+        }),
+      });
+
+      global.fetch = fetchMock;
+
+      const status = await getUserQualificationStatus(testUserId);
+
+      // Should successfully refresh token and get qualification
+      expect(status).toEqual({
+        hasLinkedAccount: true,
+        phq9Qualified: true,
+      });
+
+      // Verify token refresh was called
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://auth.example.com/token', expect.objectContaining({
+        method: 'POST',
+      }));
+
+      // Verify qualification API was called with new token
+      expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.example.com/api/user/qualifications', expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          'Authorization': 'Bearer new-access-token',
+        }),
+      }));
+
+      // Verify tokens were updated in database
+      const updatedTokens = await db.query.oauthTokens.findFirst({
+        where: eq(oauthTokens.userId, testUserId),
+      });
+      expect(updatedTokens?.accessToken).toBe('new-access-token');
+      expect(updatedTokens?.refreshToken).toBe('new-refresh-token');
+
+      // Restore environment and fetch
+      process.env = originalEnv;
+      global.fetch = originalFetch;
     });
 
     it('should return not qualified when external API is unavailable', async () => {

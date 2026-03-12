@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { cookies } from 'next/headers';
 import { db } from '@/db';
-import { sessions, users, oauthTokens, type User, type Session } from '@/db/schema';
+import { sessions, users, type User, type Session } from '@/db/schema';
 import { eq, lt } from 'drizzle-orm';
 
 /**
@@ -191,16 +191,18 @@ type ExternalQualificationResponse = {
 /**
  * Retrieves the PHQ-9 qualification status for a user.
  * Checks if the user has linked their account via OAuth and queries the external API.
+ * Automatically refreshes expired tokens before making API calls.
  * 
  * @param userId - The ID of the user to check qualification for
  * @returns An object indicating if the user has a linked account and their PHQ-9 qualification status
  */
 export async function getUserQualificationStatus(userId: number): Promise<UserQualificationStatus> {
   try {
-    // Check if user has OAuth tokens stored (linked account)
-    const tokenRecord = await db.query.oauthTokens.findFirst({
-      where: eq(oauthTokens.userId, userId),
-    });
+    // Import OAuth functions dynamically to avoid circular dependencies
+    const { getTokensForUser, getValidAccessToken } = await import('@/lib/oauth');
+    
+    // Check if user has a linked account
+    const tokenRecord = await getTokensForUser(userId);
 
     // If no linked account, return not qualified
     if (!tokenRecord) {
@@ -210,18 +212,18 @@ export async function getUserQualificationStatus(userId: number): Promise<UserQu
       };
     }
 
-    // Check if access token is expired
-    const now = new Date();
-    if (tokenRecord.expiresAt < now) {
-      // Token expired - in a full implementation, we would refresh the token here
-      // For now, default to not qualified when token is expired
+    // Get a valid access token (automatically refreshes if expired)
+    const accessToken = await getValidAccessToken(userId);
+
+    // If token refresh failed or no valid token available, return not qualified
+    if (!accessToken) {
       return {
-        hasLinkedAccount: true,
+        hasLinkedAccount: false, // Account is no longer linked after failed refresh
         phq9Qualified: false,
       };
     }
 
-    // Call external API with OAuth token
+    // Call external API with valid OAuth token
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
@@ -229,7 +231,7 @@ export async function getUserQualificationStatus(userId: number): Promise<UserQu
       const response = await fetch(process.env.EXTERNAL_API_URL + '/api/user/qualifications', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${tokenRecord.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         signal: controller.signal,
