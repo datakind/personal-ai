@@ -8,9 +8,9 @@ The data stored in the system is unique to each person. Data is not shared betwe
 
 - List people
 - View a person and the data stored for them
-- An API endpoint to add fact data to a person
-- An API endpoint to add activity data to a person
-- An API endpoint to add training data to a person
+- API endpoints to add and retrieve fact data to a person
+- API endpoints to add and retrieve activity data to a person
+- API endpoints to add and retrieve training data to a person
 
 ### Data Types
 

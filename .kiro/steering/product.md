@@ -10,7 +10,7 @@ Manages a SQLite-based storage system using Drizzle ORM where each person has th
 
 - List and view people in the system
 - View person-specific stored data
-- API endpoints for adding three data types:
+- API endpoints for adding and retrieving three data types:
   - Facts: Primitive data (given name, family name, date of birth)
   - Activities: Actions performed by a person (category, timestamp)
   - Training: Education received (timestamp, name, description)
